@@ -281,10 +281,12 @@ static qword_t* PrepareTransfer(qword_t* q, u8* src, int width, int height, int 
 	DMATAG_CNT(q, 5, 0,0,0); q++;
 	{
 		PACK_GIFTAG(q, GIF_SET_TAG(4,0,0,0,GIF_FLG_PACKED,1), GIF_REG_AD); q++;
-		PACK_GIFTAG(q, GS_SET_BITBLTBUF(0,0,0, dst_base >> 6, dst_width >> 6, psm), GS_REG_BITBLTBUF); q++;
-		PACK_GIFTAG(q, GS_SET_TRXPOS(0,0,0,0,0),     GS_REG_TRXPOS); q++;
-		PACK_GIFTAG(q, GS_SET_TRXREG(width, height), GS_REG_TRXREG); q++;
-		PACK_GIFTAG(q, GS_SET_TRXDIR(0),             GS_REG_TRXDIR); q++;
+		{
+			PACK_GIFTAG(q, GS_SET_BITBLTBUF(0,0,0, dst_base >> 6, dst_width >> 6, psm), GS_REG_BITBLTBUF); q++;
+			PACK_GIFTAG(q, GS_SET_TRXPOS(0,0,0,0,0),     GS_REG_TRXPOS); q++;
+			PACK_GIFTAG(q, GS_SET_TRXREG(width, height), GS_REG_TRXREG); q++;
+			PACK_GIFTAG(q, GS_SET_TRXDIR(0),             GS_REG_TRXDIR); q++;
+		}
 	}
 
 	while (qwords)
@@ -305,7 +307,9 @@ static qword_t* PrepareTransfer(qword_t* q, u8* src, int width, int height, int 
 	DMATAG_END(q, 2, 0,0,0); q++;
 	{
 		PACK_GIFTAG(q, GIF_SET_TAG(1,1,0,0,GIF_FLG_PACKED,1), GIF_REG_AD); q++;
-		PACK_GIFTAG(q, 1, GS_REG_TEXFLUSH); q++;
+		{
+			PACK_GIFTAG(q, 1, GS_REG_TEXFLUSH); q++;
+		}
 	}
 
 	return q;
@@ -351,17 +355,32 @@ void Gfx_AllocFramebuffers(void) {
 /*########################################################################################################################*
 *---------------------------------------------------------Palettes--------------------------------------------------------*
 *#########################################################################################################################*/
-#define PAL_TOTAL_ENTRIES    2048
 #define MAX_PAL_4BPP_ENTRIES 16
-
-#define PAL_TOTAL_BLOCKS (PAL_TOTAL_ENTRIES / MAX_PAL_4BPP_ENTRIES)
-static cc_uint8 pal_table[PAL_TOTAL_BLOCKS / BLOCKS_PER_PAGE];
-
 static unsigned clut_offset;
-#define PaletteAddr(index) (clut_offset + (index) * 64)
 
 static void InitPalette(void) {
-	clut_offset = Gfx_VRAM_Alloc(PAL_TOTAL_ENTRIES, 1, GS_PSM_32);
+	clut_offset = Gfx_VRAM_AllocPaged(MAX_PAL_4BPP_ENTRIES, 1, GS_PSM_32);
+}
+
+static qword_t* UploadPalette(qword_t* q, BitmapCol* palette) {
+	// psm8, w=16 h=16
+	// psm4, w=8  h=2
+
+	PACK_GIFTAG(q, GIF_SET_TAG(4,0,0,0,GIF_FLG_PACKED,1), GIF_REG_AD); q++;
+	{
+		PACK_GIFTAG(q, GS_SET_BITBLTBUF(0,0,0, clut_offset >> 6, 64 >> 6, GS_PSM_32), GS_REG_BITBLTBUF); q++;
+		PACK_GIFTAG(q, GS_SET_TRXPOS(0,0,0,0,0), GS_REG_TRXPOS); q++;
+		PACK_GIFTAG(q, GS_SET_TRXREG(8, 2),      GS_REG_TRXREG); q++;
+		PACK_GIFTAG(q, GS_SET_TRXDIR(0),         GS_REG_TRXDIR); q++;
+	}
+
+	// (16 * 4) / 16 = 4 qwords
+	PACK_GIFTAG(q, GIF_SET_TAG(4, 1,0,0,GIF_FLG_IMAGE,0), 0); q++;
+	{
+		Mem_Copy(q, palette, MAX_PAL_4BPP_ENTRIES * 4);
+		q += 4;
+	}
+	return q;
 }
 
 static CC_INLINE int FindInPalette(BitmapCol* palette, int pal_count, BitmapCol color) {
@@ -394,13 +413,6 @@ static int CalcPalette(BitmapCol* palette, struct Bitmap* bmp, int rowWidth) {
 		}
 	}
 	return pal_count;
-}
-
-static void ApplyPalette(BitmapCol* palette, int pal_index) {
-	dma_wait_fast();
-	// psm8, w=16 h=16
-	// psm4, w=8  h=2
-	Gfx_TransferPixels(palette, 8, 2, GS_PSM_32, PaletteAddr(pal_index), 64);
 }
 
 
@@ -436,6 +448,7 @@ struct GPUTexture {
 	cc_uint16 base, blocks;      // 4 bytes
 	cc_uint16 log2_w, log2_h;    // 4 bytes
 	cc_uint16 format, pal_index; // 4 bytes
+	BitmapCol palette[MAX_PAL_4BPP_ENTRIES];
 	BitmapCol pixels[]; // must be aligned to 16 bytes
 };
 #define GS_TEXTURE_STRIDE(tex) CC_ALIGNUP((tex)->width, 64)
@@ -483,28 +496,21 @@ static void GPUTexture_Init(struct GPUTexture* tex, struct Bitmap* bmp) {
 
 GfxResourceID Gfx_AllocTexture(struct Bitmap* bmp, int rowWidth, cc_uint8 flags, cc_bool mipmaps) {
 	BitmapCol palette[MAX_PAL_4BPP_ENTRIES] QWORD_ALIGNED;
-	int pal_count =  0;
-	int pal_index = -1;
+	int pal_count = 0;
 
 	if (!(flags & TEXTURE_FLAG_DYNAMIC)) {
 		pal_count = CalcPalette(palette, bmp, rowWidth);
-
-		if (pal_count > 0) {
-			pal_index = blockalloc_alloc(pal_table, PAL_TOTAL_BLOCKS, 1);
-		}
-		if (pal_index >= 0) {
-			ApplyPalette(palette, pal_index);
-		}
 	}
 	//Platform_Log4("%i, c%i (%i x %i)", &pal_index, &pal_count, &bmp->width, &bmp->height);
 	
-	if (pal_index >= 0) {
-		struct GPUTexture* tex = memalign(16, 32 + bmp->width * bmp->height);
+	if (pal_count > 0) {
+		struct GPUTexture* tex = memalign(16, sizeof(struct GPUTexture) + bmp->width * bmp->height);
 		if (!tex) return 0;
-		GPUTexture_Init(tex, bmp);
 
-		tex->format    = GS_PSM_4;
-		tex->pal_index = pal_index;
+		GPUTexture_Init(tex, bmp);
+		Mem_Copy(tex->palette, palette, sizeof(palette));
+
+		tex->format = GS_PSM_4;
 		ConvertTexture_Palette((cc_uint8*)tex->pixels, bmp, rowWidth, palette, pal_count);
 
 		int size    = VRAM_Size(tex->width, CC_ALIGNUP(tex->height, 32), GS_PSM_4HH);		
@@ -535,7 +541,7 @@ GfxResourceID Gfx_AllocTexture(struct Bitmap* bmp, int rowWidth, cc_uint8 flags,
 		}
 		return tex;
 	} else {
-		struct GPUTexture* tex = memalign(16, 32 + bmp->width * bmp->height * 4);
+		struct GPUTexture* tex = memalign(16, sizeof(struct GPUTexture) + bmp->width * bmp->height * 4);
 		if (!tex) return 0;
 		GPUTexture_Init(tex, bmp);
 
@@ -552,16 +558,15 @@ GfxResourceID Gfx_AllocTexture(struct Bitmap* bmp, int rowWidth, cc_uint8 flags,
 	}
 }
 
+static unsigned clut_counter;
 static void UpdateTextureBuffer(int context, struct GPUTexture* tex, unsigned buf_addr) {
 	unsigned buf_stride = GS_TEXTURE_STRIDE(tex);
 
 	PACK_GIFTAG(Q, GIF_SET_TAG(1,0,0,0, GIF_FLG_PACKED, 1), GIF_REG_AD);
 	Q++;
 
-	unsigned clut_addr  = tex->format == GS_PSM_32 ? 0 : PaletteAddr(tex->pal_index) >> 6;
-	unsigned clut_entry = 0;
-	//unsigned clut_addr  = tex->format == GS_PSM_32 ? 0 : clut_addr >> 6;
-	//unsigned clut_entry = tex->format == GS_PSM_32 ? 0 : tex->pal_index;
+	unsigned clut_addr  = tex->format == GS_PSM_32 ? 0 : clut_offset >> 6;
+	unsigned clut_entry = tex->format == GS_PSM_32 ? 0 : ((clut_counter++) & 0x0F);
 	unsigned clut_mode  = tex->format == GS_PSM_32 ? CLUT_NO_LOAD : CLUT_LOAD;
 
 	PACK_GIFTAG(Q, GS_SET_TEX0(buf_addr >> 6, buf_stride >> 6, tex->format,
@@ -577,8 +582,10 @@ void Gfx_BindTexture(GfxResourceID texId) {
 	int dst_addr = tex_offset;
 	
 	if (tex->format == GS_PSM_4HH || tex->format == GS_PSM_4HL) {
-		// No need to upload to vram
+		// No need to upload whole texture to vram
 		dst_addr = TEXMEM_4BPP_TO_VRAM(tex->base);
+
+		Q = UploadPalette(Q, tex->palette);
 	} else {
 		UploadToVRAM(tex, dst_addr);
 	}
@@ -594,10 +601,6 @@ void Gfx_DeleteTexture(GfxResourceID* texId) {
 	}
 	if (tex->format == GS_PSM_4HL) {
 		blockalloc_dealloc(tex_4HL_table, tex->base, tex->blocks);
-	}
-
-	if (tex->format != GS_PSM_32) {
-		blockalloc_dealloc(pal_table, tex->pal_index, 1);
 	}
 
 	Mem_Free(tex);
