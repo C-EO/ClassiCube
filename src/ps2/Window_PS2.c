@@ -325,10 +325,6 @@ extern void Gfx_TransferPixels(void* src, int width, int height,
 								int format, unsigned dst_base, unsigned dst_stride);
 
 void Window_DrawFramebuffer(Rect2D r, struct Bitmap* bmp) {
-	// FlushCache bios call https://psi-rockin.github.io/ps2tek/
-	//   mode=0: Flush data cache (invalidate+writeback dirty contents to memory)
-	FlushCache(0);
-	
 	Gfx_TransferPixels(bmp->scan0, bmp->width, bmp->height, GS_PSM_32, 
 						fb_colors[0].address, fb_colors[0].width);
 }
