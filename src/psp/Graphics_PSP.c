@@ -660,20 +660,22 @@ static CC_NOINLINE void RecalcClipping(void) {
 
 	// PSP guard band ranges from 0..4096
 	// - 0 < screen_x < 4096
-	// - 0 < (X/W) * vp_hwidth + (2048 + vp_x) < 4096
+	// - 0 < VIEWPORT(X/W) + WINDOW_OFFSET_X < 4096
+	// - 0 < ((X/W) * vp_hwidth + vp_x + vp_hwidth) + (2048-vp_hwidth) < 4096
+	// - 0 <  (X/W) * vp_hwidth + vp_x              +  2048            < 4096
 	// Although accurately rescaling from viewport range to guard band range
 	//  would involve vp_x and vp_hwidth, this does complicate the calculation
 	//  as e.g. a non-zero vp_x means viewport is not equally distant from the
 	//  left and right guardband planes.
 	// So to simplify calculation, just pretend viewport is same size as screen:
-	// - 0 < (X/W) * SCR_WIDTH + (2048) < 4096
-	// - -2048 < (X/W) * SCR_WIDTH < 2048 
-	// - -2048/SCR_WIDTH < (X/W) < 2048/SCR_WIDTH
-	// - W * -2048/SCR_WIDTH < X < W * 2048/SCR_WIDTH
-	// - -W < X / (2048/SCR_WIDTH) < W
-	// - -W < X * (SCR_WIDTH/2048) < W
-	float scaleX =  SCREEN_WIDTH  / 2047.0f;
-	float scaleY = -SCREEN_HEIGHT / 2047.0f;
+	// - 0 < (X/W) * SCR_HWIDTH + (2048) < 4096
+	// - -2048 < (X/W) * SCR_HWIDTH < 2048 
+	// - -2048/SCR_HWIDTH < (X/W) < 2048/SCR_HWIDTH
+	// - W * -2048/SCR_HWIDTH < X < W * 2048/SCR_HWIDTH
+	// - -W < X / (2048/SCR_HWIDTH) < W
+	// - -W < X * (SCR_HWIDTH/2048) < W
+	float scaleX =  (SCREEN_WIDTH /2) / 2047.0f;
+	float scaleY = -(SCREEN_HEIGHT/2) / 2047.0f;
 	Clip_SetGuardbandScale(&scaleX, &scaleY);
 }
 
