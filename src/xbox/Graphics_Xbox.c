@@ -24,6 +24,9 @@
 #define VS_TEXTURED_OFFSET 40
 #define VS_OFFSET_OFFSET   80
 
+#define VS_CONST_MVP  0
+#define VS_CONST_OFST 4
+
 static void LoadVertexShader(int offset, uint32_t* program, int programSize) {
 	uint32_t* p = pb_begin();
 	p = NV2A_set_program_upload_offset(p, offset);
@@ -509,7 +512,7 @@ void Gfx_LoadMatrix(MatrixType type, const struct Matrix* matrix) {
 
 	uint32_t* p;
 	p = pb_begin();
-	p = NV2A_set_constant_upload_offset(p, 0);
+	p = NV2A_set_constant_upload_offset(p, VS_CONST_MVP);
 	p = NV2A_upload_constants(p, &final, 16);
 	pb_end(p);
 }
@@ -536,7 +539,7 @@ void Gfx_EnableTextureOffset(float x, float y) {
 	uint32_t* p = pb_begin();
 	tex_offset  = true;
 
-	p = NV2A_set_constant_upload_offset(p, 4);
+	p = NV2A_set_constant_upload_offset(p, VS_CONST_OFST);
 	p = NV2A_upload_constants(p, &offset, 4);
 	p = NV2A_set_program_run_offset(p, CalcProgramOffset());
 	pb_end(p);

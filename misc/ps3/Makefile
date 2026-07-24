@@ -53,11 +53,10 @@ OBJS 		+= $(addsuffix .o, $(FPOFILES))
 MACHDEP	= -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
 
 CFLAGS	= -O2 -DPLAT_PS3 -Wall -mcpu=cell -fno-math-errno $(MACHDEP) $(INCLUDE)
-LDFLAGS	= $(MACHDEP) -Wl,-Map,$(notdir $@).map -fno-use-linker-plugin
+LDFLAGS	= $(MACHDEP) -Wl,-Map,$(notdir $@).map -fno-use-linker-plugin -L$(PSL1GHT)/ppu/lib
 LIBS	= -lrsx -lgcm_sys -lio -lsysutil -lrt -llv2 -lm -lnet -lsysmodule 
 
 INCLUDE = -I$(PSL1GHT)/ppu/include -I$(PSL1GHT)/ppu/include/simdmath
-LIBPATHS = -L$(PSL1GHT)/ppu/lib
 
 
 #---------------------------------------------------------------------------------
@@ -102,17 +101,11 @@ $(BUILD_DIR):
 # Executable generation
 #---------------------------------------------------------------------------------
 $(TARGET).elf: $(OBJS)
-	$(LD) $^ $(LDFLAGS) $(LIBPATHS) $(LIBS) -o $@
+	$(LD) $^ $(LDFLAGS) $(LIBS) -o $@
 
-$(TARGET).fake.self: $(TARGET).elf
-	$(FSELF) $< $@
-
-$(TARGET).sprx: $(TARGET).elf
-	$(STRIP) $< -o $@
-	$(SPRX) $@
-
-$(TARGET).self: $(TARGET).sprx
-	$(SELF) $< $@
+$(TARGET).gnpdrm.pkg: $(TARGET).pkg
+	cp $< $@
+	$(PACKAGE_FINALIZE) $@
 
 $(TARGET).pkg: $(TARGET).self
 	mkdir -p $(BUILD_DIR)/pkg/USRDIR
@@ -121,9 +114,15 @@ $(TARGET).pkg: $(TARGET).self
 	$(SFO) --title "$(TITLE)" --appid "$(APPID)" -f $(SFOXML) $(BUILD_DIR)/pkg/PARAM.SFO
 	$(PKG) --contentid $(CONTENTID) $(BUILD_DIR)/pkg/ $@
 
-$(TARGET).gnpdrm.pkg: $(TARGET).pkg
-	cp $< $@
-	$(PACKAGE_FINALIZE) $@
+$(TARGET).self: $(TARGET).sprx
+	$(SELF) $< $@
+
+$(TARGET).sprx: $(TARGET).elf
+	$(STRIP) $< -o $@
+	$(SPRX) $@
+
+$(TARGET).fake.self: $(TARGET).elf
+	$(FSELF) $< $@
 
 
 #---------------------------------------------------------------------------------

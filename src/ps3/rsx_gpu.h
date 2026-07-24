@@ -64,6 +64,18 @@ static CC_INLINE void RSX_set_color_write_mask(gcmContextData* ctx, int r, int g
 
 
 /*########################################################################################################################*
+*--------------------------------------------------Vertex shader constants------------------------------------------------*
+*#########################################################################################################################*/
+static CC_INLINE void RSX_upload_constants(gcmContextData* ctx, int index, const void* src, int num_dwords) {
+	// NV40TCL_VP_UPLOAD_CONST_ID, then NV40TCL_VP_UPLOAD_CONST etc
+	uint32_t* p = RSX_reserve_command(ctx, NV40TCL_VP_UPLOAD_CONST_ID, 1 + num_dwords);
+
+	*p++ = index;
+	memcpy(p, src, num_dwords * 4);
+}
+
+
+/*########################################################################################################################*
 *-----------------------------------------------------State management----------------------------------------------------*
 *#########################################################################################################################*/
 static CC_INLINE void RSX_set_depth_write(gcmContextData* ctx, int enabled) {

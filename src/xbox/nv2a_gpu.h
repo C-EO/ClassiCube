@@ -169,7 +169,7 @@ static CC_INLINE uint32_t* NV2A_set_constant_upload_offset(uint32_t* p, int offs
 	return NV2A_push1(p, NV097_SET_TRANSFORM_CONSTANT_LOAD, 96 + offset);
 }
 
-static CC_INLINE uint32_t* NV2A_upload_constants(uint32_t* p, void* src, int num_dwords) {
+static CC_INLINE uint32_t* NV2A_upload_constants(uint32_t* p, const void* src, int num_dwords) {
 	*p++ = NV2A_3D_COMMAND(NV097_SET_TRANSFORM_CONSTANT, num_dwords);
 	Mem_Copy(p, src, num_dwords * 4); p += num_dwords;
 	return p;
